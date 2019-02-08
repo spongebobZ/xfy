@@ -30,9 +30,11 @@ object today_orders {
       .set("es.port", "9200")
       .set("es.nodes.wan.only", "true")
     val spark = SparkSession.builder().config(conf).enableHiveSupport().getOrCreate()
-    val ssc = new StreamingContext(spark.sparkContext, Seconds(10))
+    val ssc = new StreamingContext(spark.sparkContext, Seconds(30))
     val df_product = spark.sql("select * from xfy.product")
-    df_product.persist(newLevel = StorageLevel.MEMORY_AND_DISK_SER)
+    //广播df_product
+//    val bc_product = ssc.sparkContext.broadcast(df_product)
+    val df_product_persist=df_product.persist(newLevel = StorageLevel.MEMORY_ONLY_SER)
 
 
     val Array(zk, groupid, topic_product_prior, threads) = args
@@ -51,7 +53,9 @@ object today_orders {
     }
 
     def get_total_price(df: DataFrame): Double = {
-      df_product.join(df.select("product_id"), df("product_id") === df_product("productid")).agg(sum("price")).first().getDouble(0)
+      df_product_persist.join(df.select("product_id"), df("product_id") === df_product_persist("productid")).agg(sum("price")).first().getDouble(0)
+//      val df_pro = bc_product.value
+//      df_pro.join(df.select("product_id"), df("product_id") === df_pro("productid")).agg(sum("price")).first().getDouble(0)
     }
 
 
@@ -67,8 +71,10 @@ object today_orders {
         val date = new Date()
         val today = dateformat.format(date)
         val df = rdd2Df(rdd)
+        df.persist(StorageLevel.MEMORY_ONLY_SER)
         val orderCnt = count_distinct_orders(df)
         val moneySum = get_total_price(df)
+        df.unpersist()
         val rdd_distinct = SparkContext.getOrCreate().makeRDD(Seq(orderTrip(orderCnt, moneySum, today)))
         rddSaveEs(rdd_distinct, s"today_order_count/$today")
       }

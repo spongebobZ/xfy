@@ -53,6 +53,7 @@ object yesterday_sell {
     val df_format = Seq((yesterday_cnt, pc_count, ios_count, android_count, yesterday_money, pc_money, ios_money, android_money, yesterday))
       .toDF("total_orders", "pc_count", "ios_count", "android_count", "money_sum", "pc_money", "ios_money", "android_money", "order_date")
     EsSparkSQL.saveToEs(df_format, s"$yesterday/order_count")
+    spark.stop()
   }
 
 }

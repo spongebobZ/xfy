@@ -3,7 +3,7 @@ package online
 import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Date
-
+import common.commonClasses.topn_sell
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.streaming.kafka.KafkaUtils
@@ -11,8 +11,6 @@ import org.apache.spark.streaming.{Seconds, State, StateSpec, StreamingContext}
 import org.elasticsearch.spark.rdd.EsSpark
 
 object today_topn_product {
-
-  case class topn_sell(date: Long, first_info: Map[String, String], second_info: Map[String, String], third_info: Map[String, String])
 
   def main(args: Array[String]): Unit = {
     if (args.length < 4) {
@@ -54,7 +52,7 @@ object today_topn_product {
 
 
     while (true) {
-      val ssc = new StreamingContext(sc, Seconds(10))
+      val ssc = new StreamingContext(sc, Seconds(30))
       ssc.checkpoint("hdfs://master:9898/checkpoints/topn_sell/" + "[ ,:]".r.replaceAllIn(Calendar.getInstance().getTime.toString.substring(0, 13), "_"))
 
       val productPriorDStream = KafkaUtils.createStream(ssc, zk, groupid, topicMap_product_prior)
@@ -63,11 +61,15 @@ object today_topn_product {
       productSellStateDStream.foreachRDD { rdd => {
         val time = dateFormat.format(new Date()).toLong
         if (!rdd.partitions.isEmpty) {
-          println(Calendar.getInstance().getTime)
-          val top3Product = rdd.top(3)(Ordering.by[(String, Int), Int](_._2))
+          val top3Product = rdd.top(3)(Ordering.by[(String, Int), Int](_._2)).toBuffer
+          if (top3Product.length < 3) {
+            for (x <- top3Product.length until 3) {
+              top3Product += "" -> 0
+            }
+          }
           val top3ProductRDD = SparkContext.getOrCreate()
             .makeRDD(
-              Seq(topn_sell(time, Map("productid" -> top3Product(0)._1, "sells" -> top3Product(0)._2.toString),
+              Seq(topn_sell(time, Map("productid" -> top3Product.head._1, "sells" -> top3Product.head._2.toString),
                 Map("productid" -> top3Product(1)._1, "sells" -> top3Product(1)._2.toString),
                 Map("productid" -> top3Product(2)._1, "sells" -> top3Product(2)._2.toString))))
           EsSpark.saveToEs(top3ProductRDD, "today_topn_product/" + time.toString.take(8))
