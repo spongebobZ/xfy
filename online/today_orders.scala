@@ -1,21 +1,23 @@
 package online
 
-import java.text.SimpleDateFormat
-import java.util.Date
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.streaming.kafka.KafkaUtils
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.elasticsearch.spark.rdd.EsSpark
 import org.apache.spark.sql.functions._
 import org.apache.spark.storage.StorageLevel
+import org.apache.spark.streaming.kafka010.KafkaUtils
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
+import common.commonFunc._
 
 object today_orders {
 
-  case class orderTrip(order_count: Long, money_sum: Double, order_date: String)
+  case class orderTrip(order_count: Long, money_sum: Double, order_date: Long)
 
   def main(args: Array[String]): Unit = {
     if (args.length < 4) {
@@ -33,13 +35,19 @@ object today_orders {
     val ssc = new StreamingContext(spark.sparkContext, Seconds(30))
     val df_product = spark.sql("select * from xfy.product")
     //广播df_product
-//    val bc_product = ssc.sparkContext.broadcast(df_product)
-    val df_product_persist=df_product.persist(newLevel = StorageLevel.MEMORY_ONLY_SER)
+    //    val bc_product = ssc.sparkContext.broadcast(df_product)
+    val df_product_persist = df_product.persist(newLevel = StorageLevel.MEMORY_ONLY_SER)
 
-
-    val Array(zk, groupid, topic_product_prior, threads) = args
-    val topicMap_product_prior = Map(topic_product_prior -> threads.toInt)
-    val productPriorDStream = KafkaUtils.createStream(ssc, zk, groupid, topicMap_product_prior).map(_._2)
+    val Array(brokers, group_id, topics, offset) = args
+    val kafkaParams = Map[String, Object]("bootstrap.servers" -> brokers,
+      "key.deserializer" -> classOf[StringDeserializer],
+      "value.deserializer" -> classOf[StringDeserializer],
+      "group.id" -> group_id,
+      "auto.offset.reset" -> offset,
+      "enable.auto.commit" -> (false: java.lang.Boolean)
+    )
+    val topicArray = topics.split(",")
+    val productPriorDStream = KafkaUtils.createDirectStream(ssc, PreferConsistent, Subscribe[String, String](topicArray, kafkaParams)).map(record => record.value())
 
     val rdd2Df = (rdd: RDD[String]) => {
       val spark = SparkSession.builder().config(conf).enableHiveSupport().getOrCreate()
@@ -54,8 +62,6 @@ object today_orders {
 
     def get_total_price(df: DataFrame): Double = {
       df_product_persist.join(df.select("product_id"), df("product_id") === df_product_persist("productid")).agg(sum("price")).first().getDouble(0)
-//      val df_pro = bc_product.value
-//      df_pro.join(df.select("product_id"), df("product_id") === df_pro("productid")).agg(sum("price")).first().getDouble(0)
     }
 
 
@@ -63,13 +69,11 @@ object today_orders {
       EsSpark.saveToEs(rdd, location)
     }
 
-    val dateformat = new SimpleDateFormat("yyyyMMdd")
     productPriorDStream.foreachRDD(rdd => {
       if (rdd.partitions.isEmpty) {
         println("this rdd is empty!!!")
       } else {
-        val date = new Date()
-        val today = dateformat.format(date)
+        val today = getToday()
         val df = rdd2Df(rdd)
         df.persist(StorageLevel.MEMORY_ONLY_SER)
         val orderCnt = count_distinct_orders(df)

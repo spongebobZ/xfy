@@ -1,14 +1,11 @@
 package offline
 
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.SparkSession
 import org.elasticsearch.spark.sql.EsSparkSQL
+import common.commonFunc._
 
 object yesterday_sell {
-
-  case class orderTrip(order_count: Long, money_sum: Double, order_date: String)
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder().appName("yesterday data")
@@ -20,10 +17,8 @@ object yesterday_sell {
       .config("es.nodes.wan.only", "true")
       .getOrCreate()
 
-    val dateformat = new SimpleDateFormat("yyyyMMdd")
-    val cal = Calendar.getInstance()
-    cal.add(Calendar.DATE, -1)
-    val yesterday = dateformat.format(cal.getTime)
+
+    val yesterday = getSpecDate(-1)
     val df_prior = spark.sql("select * from xfy.yesterday_product_prior where order_date = '" + yesterday + "'")
     val df_order = spark.sql("select * from xfy.yesterday_orders where order_date = '" + yesterday + "'").selectExpr("order_id as order_id_tmp", "client")
     val df_prior_with_client = df_prior.join(df_order, df_prior("order_id") === df_order("order_id_tmp"))

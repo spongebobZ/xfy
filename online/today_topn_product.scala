@@ -1,13 +1,17 @@
 package online
 
 import java.util.Calendar
-import java.text.SimpleDateFormat
-import java.util.Date
+
+
 import common.commonClasses.topn_sell
+import common.commonFunc._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.streaming.kafka.KafkaUtils
+import org.apache.spark.streaming.kafka010.ConsumerStrategies.Subscribe
+import org.apache.spark.streaming.kafka010.KafkaUtils
+import org.apache.spark.streaming.kafka010.LocationStrategies.PreferConsistent
 import org.apache.spark.streaming.{Seconds, State, StateSpec, StreamingContext}
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.elasticsearch.spark.rdd.EsSpark
 
 object today_topn_product {
@@ -27,6 +31,16 @@ object today_topn_product {
 
     val sc = new SparkContext(conf)
 
+    val Array(brokers, group_id, topics, offset) = args
+    val kafkaParams = Map[String, Object]("bootstrap.servers" -> brokers,
+      "key.deserializer" -> classOf[StringDeserializer],
+      "value.deserializer" -> classOf[StringDeserializer],
+      "group.id" -> group_id,
+      "auto.offset.reset" -> offset,
+      "enable.auto.commit" -> (false: java.lang.Boolean)
+    )
+    val topicArray = topics.split(",")
+
 
     val updateProductSell = (productid: String, currentSell: Option[Int], beforeSell: State[Int]) => {
       val lastestSell = currentSell.getOrElse(0) + beforeSell.getOption().getOrElse(0)
@@ -34,32 +48,18 @@ object today_topn_product {
       beforeSell.update(lastestSell)
       product_sell
     }
-    val Array(zk, groupid, topic_orders, threads) = args
-    val topicMap_product_prior = Map(topic_orders -> threads.toInt)
-
-    def getTsToTomorrow = {
-      val cal = Calendar.getInstance()
-      val now = cal.getTime.getTime
-      cal.add(Calendar.DATE, 1)
-      cal.set(Calendar.HOUR_OF_DAY, 0)
-      cal.set(Calendar.MINUTE, 0)
-      cal.set(Calendar.SECOND, 0)
-      val tomorrow = cal.getTime.getTime
-      tomorrow - now
-    }
-
-    val dateFormat = new SimpleDateFormat("yyyyMMddHHmmss")
 
 
     while (true) {
       val ssc = new StreamingContext(sc, Seconds(30))
       ssc.checkpoint("hdfs://master:9898/checkpoints/topn_sell/" + "[ ,:]".r.replaceAllIn(Calendar.getInstance().getTime.toString.substring(0, 13), "_"))
 
-      val productPriorDStream = KafkaUtils.createStream(ssc, zk, groupid, topicMap_product_prior)
-      val productidDStream = productPriorDStream.map(x => (x._2.split(",")(1), 1))
+      val productPriorDStream = KafkaUtils.createDirectStream(ssc, PreferConsistent, Subscribe[String, String](topicArray, kafkaParams)).map(record => record.value())
+      val productidDStream = productPriorDStream.map(x => (x.toString.split(",")(1), 1))
       val productSellStateDStream = productidDStream.mapWithState(StateSpec.function(updateProductSell)).stateSnapshots()
+
       productSellStateDStream.foreachRDD { rdd => {
-        val time = dateFormat.format(new Date()).toLong
+        val time = getToday("yyyyMMddHHmmss")
         if (!rdd.partitions.isEmpty) {
           val top3Product = rdd.top(3)(Ordering.by[(String, Int), Int](_._2)).toBuffer
           if (top3Product.length < 3) {
@@ -80,9 +80,8 @@ object today_topn_product {
       }
       }
 
-
       ssc.start()
-      ssc.awaitTerminationOrTimeout(getTsToTomorrow)
+      ssc.awaitTerminationOrTimeout(getTsToSpecDate(1))
       ssc.stop(false, true)
       var ssc_flag = 0
       while (ssc_flag == 0) {
