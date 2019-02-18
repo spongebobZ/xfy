@@ -6,4 +6,6 @@ object commonClasses {
 
   case class reg_log(date: Long, regCnt: Long)
 
+  case class login_log(date: Long, dau: Long)
+
 }

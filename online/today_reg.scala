@@ -43,9 +43,9 @@ object today_reg {
       part.map(record => {
         val tmpArray = record.split(",").flatMap(x => x.split(" ")).flatMap(x => x.split(":"))
         if (tmpArray.length == 17) {
-          Array(tmpArray(0), tmpArray(8), tmpArray(14))
+          Array(tmpArray(14), tmpArray(8))
         } else {
-          Array("ERROR","ERROR","ERROR")
+          Array("ERROR", "ERROR")
         }
       }).filter(x => x(1).toUpperCase != "ERROR")
     })
