@@ -55,12 +55,16 @@ object today_monitor {
       val rdd_format = rdd.mapPartitions(part => {
         part.map(record => {
           val v = record.value().split(" ").filter(_.nonEmpty)
-          v.length match {
-            case 9 => record.key() -> Array(1D, v(3).toDouble)
-            case 12 => record.key() -> Array(2D, v(2).toDouble, v(3).toDouble, v(4).toDouble)
-            case 7 => record.key() -> Array(3D, v(2).toDouble, v(3).toDouble, v(4).toDouble)
-            case 10 => record.key() -> Array(4D, v(3).toDouble, v(5).toDouble, v(6).toDouble)
-            case _ => record.key() -> Array[Double]()
+          try {
+            v.length match {
+              case 9 => record.key() -> Array(1D, v(3).toDouble)
+              case 12 => record.key() -> Array(2D, v(2).toDouble, v(3).toDouble, v(4).toDouble)
+              case 7 => record.key() -> Array(3D, v(2).toDouble, v(3).toDouble, v(4).toDouble)
+              case 10 => record.key() -> Array(4D, v(3).toDouble, v(5).toDouble, v(6).toDouble)
+              case _ => record.key() -> Array[Double]()
+            }
+          } catch {
+            case e: NumberFormatException => record.key() -> Array[Double]()
           }
         }).filter(_._2.nonEmpty)
       })
