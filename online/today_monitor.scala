@@ -75,7 +75,7 @@ object today_monitor {
 
       val memoryRDD = rdd_format.mapPartitions(part => part.filter(_._2(0) == 2D).map(x => x._1 -> (x._2(1), x._2(2), x._2(3), 1)))
         .reduceByKey((x, y) => (x._1 + y._1, x._2 + y._2, x._3 + y._3, x._4 + y._4))
-        .mapPartitions(part => part.map(x => Map("hostname" -> x._1, "freeMemory" -> x._2._1 / x._2._4, "userMemory" -> x._2._2 / x._2._4, "memoryPercent" -> x._2._3 / x._2._4))
+        .mapPartitions(part => part.map(x => Map("hostname" -> x._1, "freeMemory" -> x._2._1 / x._2._4, "usedMemory" -> x._2._2 / x._2._4, "memoryPercent" -> x._2._3 / x._2._4))
         )
 
       val diskIORDD = rdd_format.mapPartitions(part => part.filter(_._2(0) == 3D).map(x => x._1 -> (x._2(1), x._2(2), x._2(3), 1)))
